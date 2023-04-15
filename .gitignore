@@ -1,3 +1,4 @@
 a.out
 *.out
 .vscode
+.git_token
