@@ -8,9 +8,14 @@
 #include <pthread.h>
 #include <cstdlib>
 #include <unistd.h>
+#include <sstream>
+#include <cmath>
+#include <chrono>
+
 
 const std::string VOWELS= "aeyuio";
-const int THREAD_COUNT = 10;
+const int THREAD_COUNT = 9;
+const int REPEAT_TIMES = 500000;
 struct ReduceInput
 {
     int begin;
@@ -32,22 +37,30 @@ void* Map(void* args);
 void* Reduce(void* args);
 void* thread_job(void* args);
 
+std::string repeat(int n) {
+    std::ostringstream os;
+    for(int i = 0; i < n; i++)
+        os << "repeat";
+    return os.str();
+}
+
+
 int main()
 {
     //std::vector<std::string> lines = {
-    std::vector<std::string> lines = {
-    "How many vocals do", 
-    "these two lines have",
-    "How many vocals do", 
-    "these two lines have",
-    "How many vocals do", 
-    "these two lines have",
-    "How many vocals do", 
-    "these two lines have",
-    };
+    std::vector<std::string> lines;
+    for (int i = 0 ; i < REPEAT_TIMES; i++)
+    {
+        lines.push_back("How many vocals do");
+        lines.push_back("these two lines have");
+    }
+    auto start_s = std::chrono::steady_clock::now();
     auto results = MapReduce(lines, Map, Reduce);
     for (const auto& kv : results)
         std::cout << kv.first << ": " << kv.second << std::endl;
+    auto end_s = std::chrono::steady_clock::now();
+    auto elapsed_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_s-start_s);
+    std::cout << "Time for "<< THREAD_COUNT <<" threads: " << elapsed_time.count() << " ms" << std::endl;
     return 0;
 }
 
@@ -72,6 +85,8 @@ void* thread_job (void* args)
 std::multimap<char, int> mapResults;
 std::map<char, std::vector<int>> reduceSources;
 std::map<char,int> reduceResult;
+pthread_spinlock_t mx;
+//pthread_mutex_t mx;
 
 std::map<char,int> MapReduce(
     std::vector<std::string> lines,
@@ -79,6 +94,9 @@ std::map<char,int> MapReduce(
     void*reduce(void*)
     )
 {
+    pthread_spin_init(&mx, PTHREAD_PROCESS_PRIVATE);
+    //pthread_mutex_init(&mx, NULL);
+    //std::cout<< "MapReduceStarted" << std::endl;
     int err;
     pthread_t* thread = new pthread_t[THREAD_COUNT];
     thread_input* thread_arguments = new thread_input[THREAD_COUNT];
@@ -105,6 +123,7 @@ std::map<char,int> MapReduce(
     {
         int ret = pthread_join(thread[i], NULL);
     }
+    //std::cout<< "Mapped. Threads_joined" << std::endl;
     // for (auto sourceItem : lines)
     // {
     //     map(&sourceItem);
@@ -119,6 +138,7 @@ std::map<char,int> MapReduce(
             reduceSources.insert(std::pair<char, std::vector<int> >(letter, std::vector<int>()));
             reduceResult[letter] = 0;
         }
+    //std::cout<< "StartToReduce" << std::endl;
     for (const auto& kv : mapResults)
         reduceSources[kv.first].push_back(kv.second);
 
@@ -170,11 +190,16 @@ void mapCountVowels(void* args)
                 vowels[letter]++;
         }
     }
+    // pthread_mutex_lock(&mx);
+    pthread_spin_lock(&mx);
     for (const auto& kv : vowels)
     {
-        if (kv.second > 0)
+        if (kv.second > 0){
             mapResults.insert(std::pair<char, int>(kv.first, kv.second));
+        }
     }
+    pthread_spin_unlock(&mx);
+    //pthread_mutex_unlock(&mx);
 }
 
 void* Map(void* args)
@@ -183,6 +208,7 @@ void* Map(void* args)
     MapInput *input = (MapInput*) args;
     for (int i = input->begin; i < input->end; i++)
         mapCountVowels(&(input->lines[i]));
+    return NULL;
 }
 
 
@@ -193,7 +219,11 @@ void* Reduce(void* args)
     for (int i = input->begin; i < input->end; i++)
     {
         for (auto num : reduceSources[VOWELS[i]])
+        {
+            pthread_spin_lock(&mx);
             reduceResult[VOWELS[i]] += num;
+            pthread_spin_unlock(&mx);
+        }
     }
     //delete input;
     return NULL;

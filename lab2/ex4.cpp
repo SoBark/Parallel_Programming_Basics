@@ -10,7 +10,7 @@ using namespace std;
 << endl; exit(EXIT_FAILURE); }
 //#define m_on 0
 const int TASKS_COUNT = 100;
-const int THREAD_COUNT = 1; // Число потоков 
+const int THREAD_COUNT = 100; // Число потоков 
 int task_list[TASKS_COUNT]; // Массив заданий
 
 struct thread_input
@@ -25,7 +25,7 @@ void do_task(int task_no)
 {
     //int num = 2;
     int result = 0;
-    for (int i = 0; i < 100; i++) result += task_list[0];
+    for (int i = 0; i < 10000000; i++) result += task_list[0];
 }
 void *thread_job_mutex(void *arg)
 {
@@ -47,11 +47,11 @@ void *thread_job_mutex(void *arg)
         // Сдвигаем указатель текущего задания на следующее
         //sleep(rand()%2);
         current_task++;
-        // sum = 2;
-        // for (int i = 0; i < 100; i++)
-        // {
-        //     sum *= sum;
-        // }
+        sum = 2;
+        for (int i = 0; i < 1000000 ; i++)
+        {
+            sum += task_list[0];
+        }
         // Освобождаем мьютекс
         err = pthread_mutex_unlock(&mutex);
         if(err != 0){
@@ -78,6 +78,7 @@ void *thread_job_spinlock(void *arg)
     thread_input* input =  (thread_input*) arg;
     int task_no;
     int err;
+    int sum = 2;
     // Перебираем в цикле доступные задания
     while(true) {
         // Захватываем спинлок для исключительного доступа
@@ -92,7 +93,12 @@ void *thread_job_spinlock(void *arg)
         // Сдвигаем указатель текущего задания на следующее
         //sleep(rand()%2);
         current_task++;
-        // Освобождаем мьютекс
+        sum = 2;
+        for (int i = 0; i < 1000000 ; i++)
+        {
+            sum += task_list[0];
+        }
+        // Освобождаем спинлок
         err = pthread_spin_unlock(&lock);
         if(err != 0){
             delete input;
@@ -103,7 +109,7 @@ void *thread_job_spinlock(void *arg)
         // В противном случае завершаем работу потока
         if(task_no < TASKS_COUNT){
             //printf("Поток %d выполняет %d задание.\n", input->thread_num, task_no);
-            //do_task(task_no);
+            do_task(task_no);
             }
         else{
             //printf("Поток %d завершает работу.\n", input->thread_num);
@@ -126,27 +132,6 @@ int main()
     for(int i=0; i<TASKS_COUNT; ++i)
         task_list[i] = rand() % TASKS_COUNT;
     for (int j; j < EXEC_COUNT; j++){
-        // Инициализируем мьютекс
-        current_task = 0;
-        auto start = std::chrono::steady_clock::now();
-        err = pthread_mutex_init(&mutex, NULL);
-        if(err != 0)
-            err_exit(err, "Cannot initialize mutex");
-        // Создаём потоки
-        for (int i=0; i<THREAD_COUNT; i++){
-            input = new thread_input;
-            input->thread_num = i;
-            err = pthread_create(&threads[i], NULL, thread_job_mutex, input);
-            if(err != 0)
-                err_exit(err, "Cannot create thread");
-        }
-        for (int i =0; i < THREAD_COUNT; i++)
-            pthread_join(threads[i], NULL);
-        // Освобождаем ресурсы, связанные с мьютексом
-        pthread_mutex_destroy(&mutex);
-        auto end = std::chrono::steady_clock::now();
-        auto elapsed_time = chrono::duration_cast<std::chrono::milliseconds>(end-start);
-        time_mutex += elapsed_time.count();
 
         current_task = 0;
         //spinlock
@@ -167,8 +152,30 @@ int main()
         // Освобождаем ресурсы, связанные с мьютексом
         pthread_spin_destroy(&lock);
         auto end_s = std::chrono::steady_clock::now();
-        elapsed_time = chrono::duration_cast<std::chrono::milliseconds>(end_s-start_s);
+        auto elapsed_time = chrono::duration_cast<std::chrono::milliseconds>(end_s-start_s);
         time_spinlock += elapsed_time.count();
+
+        // Инициализируем мьютекс
+        current_task = 0;
+        auto start = std::chrono::steady_clock::now();
+        err = pthread_mutex_init(&mutex, NULL);
+        if(err != 0)
+            err_exit(err, "Cannot initialize mutex");
+        // Создаём потоки
+        for (int i=0; i<THREAD_COUNT; i++){
+            input = new thread_input;
+            input->thread_num = i;
+            err = pthread_create(&threads[i], NULL, thread_job_mutex, input);
+            if(err != 0)
+                err_exit(err, "Cannot create thread");
+        }
+        for (int i =0; i < THREAD_COUNT; i++)
+            pthread_join(threads[i], NULL);
+        // Освобождаем ресурсы, связанные с мьютексом
+        pthread_mutex_destroy(&mutex);
+        auto end = std::chrono::steady_clock::now();
+        elapsed_time = chrono::duration_cast<std::chrono::milliseconds>(end-start);
+        time_mutex += elapsed_time.count();
     }
     std::cout << "Mutex: " << time_mutex / EXEC_COUNT << " ms" << std::endl;
     std::cout << "Spinlock: " << time_spinlock / EXEC_COUNT << " ms" << std::endl;
