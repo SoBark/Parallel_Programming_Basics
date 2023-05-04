@@ -29,9 +29,9 @@ const double Dy = y_end - y_start;
 const double Dz = z_end - z_start;
 
 // Количество узлов сетки
-const int Nx = 30;
-const int Ny = 20;
-const int Nz = 20;
+const int Nx = 10;
+const int Ny = 10;
+const int Nz = 10;
 
 // Размеры шага на сетке
 const double hx = Dx / (Nx - 1);
@@ -145,7 +145,6 @@ double getError(double*** grid, int size, double start, int rootProcRank)
 
 void Jacobi(double***& grid1, int size, int start, int lowerProcRank, int upperProcRank)
 {
-
 	MPI_Request arr_recv[4];// send_request_child, send_request_parent, recv_request_child, recv_request_parent;
 	int rank;
 	int number_of_process;
@@ -160,7 +159,7 @@ void Jacobi(double***& grid1, int size, int start, int lowerProcRank, int upperP
 	double maxLocalConverg;
 
 	// Флаг, показывающий, является ли эпсилон меньше любого значения сходимости для данного процесса
-	bool isEpsilonLower;
+	bool isEpsilonLower = true;
 
 	const double hx2 = pow(hx, 2);
 	const double hy2 = pow(hy, 2);
@@ -247,35 +246,6 @@ void Jacobi(double***& grid1, int size, int start, int lowerProcRank, int upperP
 			MPI_Irecv((void*)messageBufReqv_1, messageLength, MPI_DOUBLE, lowerProcRank, LOWER_BOUND_TAG, MPI_COMM_WORLD, &requests[2]);
 		}
 
-
-		// Если процесс обрабатывает более одного слоя
-		if (size != 3) {
-			// Вычисляем граничные значения
-			// При i = size - 2
-			for (int j = 1; j < Ny - 1; j++) {
-				for (int k = 1; k < Nz - 1; k++) {
-					// Первая дробь в скобках
-					currentDestPtr[size - 2][j][k] = (currentSourcePtr[size - 1][j][k] + currentSourcePtr[size - 3][j][k]) / hx2;
-
-					// Вторая дробь в скобках
-					currentDestPtr[size - 2][j][k] += (currentSourcePtr[size - 2][j + 1][k] + currentSourcePtr[size - 2][j - 1][k]) / hy2;
-
-					// Третья дробь в скобках
-					currentDestPtr[size - 2][j][k] += (currentSourcePtr[size - 2][j][k + 1] + currentSourcePtr[size - 2][j][k - 1]) / hz2;
-
-					// Остальная часть вычисления нового значения для данного узла
-					currentDestPtr[size - 2][j][k] -= rho(currentSourcePtr[size - 2][j][k]);
-					currentDestPtr[size - 2][j][k] *= c;
-
-					// Сходимость для данного узла
-					currConverg = abs(currentDestPtr[size - 2][j][k] - currentSourcePtr[size - 2][j][k]);
-					if (currConverg > maxLocalConverg) {
-						maxLocalConverg = currConverg;
-					}
-				}
-			}
-		}
-
 		// Если процесс должен отправить свой крайний слой со старшим значением x (не содержит слоя с x = Nx - 1)
 		if (upperProcRank != -1) {
 			for (int j = 0; j < Ny - 2; j++) {
@@ -283,14 +253,14 @@ void Jacobi(double***& grid1, int size, int start, int lowerProcRank, int upperP
 					messageBufSend_2[(Ny - 2) * j + k] = currentDestPtr[size - 2][j + 1][k + 1];
 				}
 			}
+            
 			// Отправляем слой старшему процессу
-			//MPI_Send((void*)messageBuf, messageLength, MPI_DOUBLE, upperProcRank, LOWER_BOUND_TAG, MPI_COMM_WORLD);
 			MPI_Isend((void*)messageBufSend_2, messageLength, MPI_DOUBLE, upperProcRank, LOWER_BOUND_TAG, MPI_COMM_WORLD, &requests[1]);
 			MPI_Irecv((void*)messageBufReqv_2, messageLength, MPI_DOUBLE, upperProcRank, UPPER_BOUND_TAG, MPI_COMM_WORLD, &requests[3]);
 		}
 		
 
-		for (int i = 2; i < size - 2; i++) {
+		for (int i = 2; i < size - 1; i++) {
 			for (int j = 1; j < Ny - 1; j++) {
 				for (int k = 1; k < Nz - 1; k++) {
 
@@ -317,10 +287,7 @@ void Jacobi(double***& grid1, int size, int start, int lowerProcRank, int upperP
 			}
 		}
 
-		if (eps < maxLocalConverg) {
-			isEpsilonLower = true;
-		}
-		else {
+		if (maxLocalConverg < eps) {
 			isEpsilonLower = false;
 		}
 
